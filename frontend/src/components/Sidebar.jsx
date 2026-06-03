@@ -1,30 +1,31 @@
+// src/components/Sidebar.jsx
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
     LayoutDashboard, Package, ShoppingCart, Users, Wrench,
-    Wallet, Receipt, Users2, BarChart3, LogOut,
-    ChevronLeft, ChevronRight
+    Wallet, Receipt, Users2, FileBarChart, LogOut,
+    ChevronLeft, ChevronRight, Smartphone
 } from 'lucide-react';
-import { useContext } from 'react';
-import { AuthContext } from '../App';
+// ✅ 1. استورد useAuth فقط (مش AuthContext)
+import { useAuth } from '../context/AuthContext';
 
 const menuItems = [
-    { path: '/', icon: LayoutDashboard, label: 'لوحة التحكم', roles: ['admin', 'employee'] },
-    { path: '/inventory', icon: Package, label: 'المخزون والأصناف', roles: ['admin', 'employee'] },
-    { path: '/sales', icon: ShoppingCart, label: 'المبيعات', roles: ['admin', 'employee'] },
-    { path: '/customers', icon: Users, label: 'العملاء', roles: ['admin', 'employee'] },
-    { path: '/maintenance', icon: Wrench, label: 'الصيانة', roles: ['admin', 'employee'] },
-    { path: '/treasury', icon: Wallet, label: 'الخزينة والمحافظ', roles: ['admin'] },
-    { path: '/expenses', icon: Receipt, label: 'المصروفات', roles: ['admin'] },
-    { path: '/employees', icon: Users2, label: 'الموظفين', roles: ['admin'] },
-    { path: '/reports', icon: BarChart3, label: 'التقارير', roles: ['admin'] },
+    { icon: LayoutDashboard, label: 'لوحة التحكم', path: '/' },
+    { icon: Package, label: 'المخزون', path: '/inventory' },
+    { icon: ShoppingCart, label: 'المبيعات', path: '/sales' },
+    { icon: Users, label: 'العملاء', path: '/customers' },
+    { icon: Wrench, label: 'الصيانة', path: '/maintenance' },
+    { icon: Wallet, label: 'الخزنة', path: '/treasury' },
+    { icon: Receipt, label: 'المصروفات', path: '/expenses' },
+    { icon: Users2, label: 'الموظفين', path: '/employees' },
+    { icon: FileBarChart, label: 'التقارير', path: '/reports' },
 ];
 
-export default function Sidebar() {
-    const { user, logout } = useContext(AuthContext);
+const Sidebar = ({ isOpen, setIsOpen }) => {
+    // ✅ 2. استخدم useAuth() هنا عشان تجيب بيانات اليوزر
+    const { user, logout } = useAuth();
     const navigate = useNavigate();
-    const [isOpen, setIsOpen] = React.useState(true);
 
     const handleLogout = () => {
         logout();
@@ -32,112 +33,119 @@ export default function Sidebar() {
     };
 
     return (
-        <motion.aside
-            initial={false}
-            animate={{ width: isOpen ? 280 : 72 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-            className="bg-dark-900 border-l border-dark-800 flex flex-col h-full relative z-20"
-        >
-            {/* Logo */}
-            <div className="p-4 border-b border-dark-800">
-                <div className="flex items-center gap-3">
-                    <motion.div
-                        whileHover={{ rotate: 10 }}
-                        className="w-10 h-10 bg-gradient-to-br from-primary-500 to-purple-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg"
-                    >
-                        <span className="text-xl">📱</span>
-                    </motion.div>
-                    {isOpen && (
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="overflow-hidden"
-                        >
-                            <h1 className="text-lg font-bold gradient-text">موبايل شوب</h1>
-                            <p className="text-dark-500 text-xs">نظام إدارة متكامل</p>
-                        </motion.div>
-                    )}
-                </div>
-            </div>
+        <>
+            {/* Overlay for mobile */}
+            {isOpen && (
+                <div
+                    className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+                    onClick={() => setIsOpen(false)}
+                />
+            )}
 
-            {/* Toggle Button */}
-            <button
-                onClick={() => setIsOpen(!isOpen)}
-                className="absolute -left-3 top-16 w-6 h-6 bg-dark-700 border border-dark-600 rounded-full flex items-center justify-center text-dark-400 hover:text-white transition-colors z-30"
+            {/* Sidebar */}
+            <motion.aside
+                initial={false}
+                animate={{
+                    width: isOpen ? '280px' : '80px',
+                    x: isOpen ? 0 : '-100%'
+                }}
+                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                className={`fixed lg:static inset-y-0 right-0 z-50 glass border-l border-dark-800 flex flex-col overflow-hidden ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+                    }`}
             >
-                {isOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
-            </button>
-
-            {/* Navigation */}
-            <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-                {menuItems.map((item) => {
-                    if (!item.roles.includes(user.role)) return null;
-                    return (
-                        <NavLink
-                            key={item.path}
-                            to={item.path}
-                            className={({ isActive }) =>
-                                `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group ${isActive
-                                    ? 'bg-primary-500/15 text-primary-400 shadow-lg shadow-primary-500/5'
-                                    : 'text-dark-400 hover:bg-dark-800 hover:text-dark-200'
-                                }`
-                            }
-                        >
-                            {({ isActive }) => (
-                                <>
-                                    <item.icon size={20} className="flex-shrink-0" />
-                                    {isOpen && (
-                                        <motion.span
-                                            initial={{ opacity: 0 }}
-                                            animate={{ opacity: 1 }}
-                                            className="text-sm font-medium whitespace-nowrap"
-                                        >
-                                            {item.label}
-                                        </motion.span>
-                                    )}
-                                    {isActive && isOpen && (
-                                        <motion.div
-                                            layoutId="activeIndicator"
-                                            className="absolute left-0 w-1 h-8 bg-primary-500 rounded-r-full"
-                                        />
-                                    )}
-                                </>
-                            )}
-                        </NavLink>
-                    );
-                })}
-            </nav>
-
-            {/* User Info & Logout */}
-            <div className="p-3 border-t border-dark-800">
-                <div className="flex items-center gap-3 p-2 rounded-xl bg-dark-800/50">
-                    <div className="w-9 h-9 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span className="text-sm">👤</span>
-                    </div>
-                    {isOpen && (
-                        <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-dark-200 truncate">{user.name}</p>
-                            <p className="text-xs text-dark-500">
-                                {user.role === 'admin' ? 'مدير النظام' : 'موظف'}
-                            </p>
+                {/* Logo */}
+                <div className="p-4 border-b border-dark-800">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-purple-500 flex items-center justify-center flex-shrink-0">
+                            <Smartphone size={20} className="text-white" />
                         </div>
+                        {isOpen && (
+                            <motion.div
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                className="overflow-hidden"
+                            >
+                                <h1 className="font-bold text-dark-100 whitespace-nowrap">محل الموبايلات</h1>
+                                <p className="text-xs text-dark-500">نظام الإدارة المتكامل</p>
+                            </motion.div>
+                        )}
+                    </div>
+                </div>
+
+                {/* User Info */}
+                {isOpen && (
+                    <div className="p-4 border-b border-dark-800">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500/20 to-purple-500/20 border border-primary-500/30 flex items-center justify-center">
+                                <span className="text-primary-400 font-bold">
+                                    {user?.name?.charAt(0) || 'U'}
+                                </span>
+                            </div>
+                            <div className="overflow-hidden">
+                                <p className="text-sm font-medium text-dark-200 truncate">{user?.name}</p>
+                                <p className="text-xs text-dark-500">
+                                    {user?.role === 'admin' ? '👑 مدير النظام' : '👤 موظف'}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Menu Items */}
+                <nav className="flex-1 overflow-y-auto p-3 space-y-1">
+                    {menuItems.map((item) => {
+                        const Icon = item.icon;
+                        return (
+                            <NavLink
+                                key={item.path}
+                                to={item.path}
+                                onClick={() => window.innerWidth < 1024 && setIsOpen(false)}
+                                className={({ isActive }) => `
+                  flex items-center gap-3 px-3 py-3 rounded-xl transition-all group
+                  ${isActive
+                                        ? 'bg-primary-500/15 text-primary-400 border border-primary-500/20'
+                                        : 'text-dark-400 hover:bg-dark-800 hover:text-dark-200'
+                                    }
+                `}
+                            >
+                                <Icon size={20} className="flex-shrink-0" />
+                                {isOpen && (
+                                    <motion.span
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        className="text-sm font-medium whitespace-nowrap overflow-hidden"
+                                    >
+                                        {item.label}
+                                    </motion.span>
+                                )}
+                            </NavLink>
+                        );
+                    })}
+                </nav>
+
+                {/* Toggle Button & Logout */}
+                <div className="p-3 border-t border-dark-800 space-y-2">
+                    <button
+                        onClick={() => setIsOpen(!isOpen)}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-dark-800 text-dark-400 hover:bg-dark-700 transition-colors"
+                    >
+                        {isOpen ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
+                        {isOpen && <span className="text-sm">طي القائمة</span>}
+                    </button>
+
+                    {isOpen && (
+                        <button
+                            onClick={handleLogout}
+                            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-red-400 hover:bg-red-500/10 transition-colors"
+                        >
+                            <LogOut size={20} />
+                            <span className="text-sm font-medium">تسجيل الخروج</span>
+                        </button>
                     )}
                 </div>
-                {isOpen && (
-                    <motion.button
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={handleLogout}
-                        className="w-full mt-2 flex items-center gap-2 px-3 py-2 text-red-400 hover:bg-red-500/10 rounded-xl transition-colors text-sm"
-                    >
-                        <LogOut size={18} />
-                        <span>تسجيل الخروج</span>
-                    </motion.button>
-                )}
-            </div>
-        </motion.aside>
+            </motion.aside>
+        </>
     );
-}
+};
+
+export default Sidebar;
