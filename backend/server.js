@@ -30,7 +30,7 @@ app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/treasury', treasuryRoutes);
-
+app.use('/api/auth', require('./routes/auth'));
 
 // Daily Stats Endpoint
 app.get('/api/dashboard/stats', async (req, res) => {

@@ -3,7 +3,7 @@ import axios from 'axios';
 
 // إنشاء instance من axios بإعدادات مخصصة
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || 'http://localhost:6000/api', // غير البورت لو مختلف
+    baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api', // غير البورت لو مختلف
     headers: {
         'Content-Type': 'application/json',
     },
