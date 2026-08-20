@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Minus, Trash2, Printer, Send, FileText, ShoppingCart } from 'lucide-react';
 import toast from 'react-hot-toast';
+import api from '../api/axios';
 
 const paymentMethods = [
     { id: 'cash', name: 'نقدي', icon: '💵' },
@@ -12,16 +13,9 @@ const paymentMethods = [
     { id: 'bank_transfer', name: 'تحويل بنكي', icon: '🏦' },
 ];
 
-const sampleProducts = [
-    { id: 1, name: 'iPhone 15 Pro Max 256GB', price: 58000, purchasePrice: 52000, stock: 8, code: 'IPH-15PM' },
-    { id: 2, name: 'Samsung Galaxy S24 Ultra 512GB', price: 54000, purchasePrice: 48000, stock: 12, code: 'SAM-S24U' },
-    { id: 3, name: 'شاحن iPhone 20W أصلي', price: 550, purchasePrice: 350, stock: 45, code: 'CHR-IP20W' },
-    { id: 4, name: 'سماعات AirPods Pro 2', price: 5200, purchasePrice: 4200, stock: 3, code: 'APD-PRO2' },
-    { id: 5, name: 'كفر iPhone 15 Pro شفاف', price: 200, purchasePrice: 80, stock: 120, code: 'CAS-IP15P' },
-    { id: 6, name: 'باور بانك Xiaomi 20000mAh', price: 850, purchasePrice: 500, stock: 25, code: 'PWR-XMI20K' },
-];
-
 export default function Sales() {
+    const [products, setProducts] = useState([]);
+    const [customers, setCustomers] = useState([]);
     const [cart, setCart] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [customer, setCustomer] = useState({ name: '', phone: '' });
@@ -31,15 +25,38 @@ export default function Sales() {
     const [isInstallment, setIsInstallment] = useState(false);
     const [installments, setInstallments] = useState({ count: 3, advance: 0 });
 
+    useEffect(() => {
+        loadProducts();
+        loadCustomers();
+    }, []);
+
+    const loadProducts = async () => {
+        try {
+            const { data } = await api.get('/products');
+            setProducts(data);
+        } catch (err) {
+            toast.error('فشل تحميل المنتجات');
+        }
+    };
+
+    const loadCustomers = async () => {
+        try {
+            const { data } = await api.get('/customers');
+            setCustomers(data);
+        } catch (err) {
+            toast.error('فشل تحميل العملاء');
+        }
+    };
+
     const addToCart = (product) => {
-        const existing = cart.find(item => item.id === product.id);
+        const existing = cart.find(item => item._id === product._id);
         if (existing) {
-            if (existing.quantity >= product.stock) {
+            if (existing.quantity >= product.quantity) {
                 toast.error('الكمية غير متوفرة في المخزون');
                 return;
             }
             setCart(cart.map(item =>
-                item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+                item._id === product._id ? { ...item, quantity: item.quantity + 1 } : item
             ));
         } else {
             setCart([...cart, { ...product, quantity: 1 }]);
@@ -48,10 +65,10 @@ export default function Sales() {
 
     const updateQuantity = (id, delta) => {
         setCart(cart.map(item => {
-            if (item.id === id) {
+            if (item._id === id) {
                 const newQty = item.quantity + delta;
                 if (newQty <= 0) return null;
-                if (newQty > item.stock) {
+                if (newQty > item.quantity) {
                     toast.error('الكمية غير متوفرة');
                     return item;
                 }
@@ -62,19 +79,19 @@ export default function Sales() {
     };
 
     const removeFromCart = (id) => {
-        setCart(cart.filter(item => item.id !== id));
+        setCart(cart.filter(item => item._id !== id));
     };
 
-    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const subtotal = cart.reduce((sum, item) => sum + (item.sellingPrice * item.quantity), 0);
     const total = subtotal - discount;
-    const profit = cart.reduce((sum, item) => sum + ((item.price - item.purchasePrice) * item.quantity), 0) - discount;
+    const profit = cart.reduce((sum, item) => sum + ((item.sellingPrice - item.purchasePrice) * item.quantity), 0) - discount;
 
-    const filteredProducts = sampleProducts.filter(p =>
+    const filteredProducts = products.filter(p =>
         p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.code.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const handleCheckout = () => {
+    const handleCheckout = async () => {
         if (cart.length === 0) {
             toast.error('السلة فارغة');
             return;
@@ -83,8 +100,53 @@ export default function Sales() {
             toast.error('يرجى إدخال بيانات العميل');
             return;
         }
-        setShowReceipt(true);
-        toast.success('تم إنشاء الفاتورة بنجاح ✅');
+        try {
+            const existingCustomer = customers.find(c => c.phone === customer.phone);
+            let customerId = existingCustomer?._id;
+            if (!existingCustomer) {
+                const { data } = await api.post('/customers', { name: customer.name, phone: customer.phone });
+                customerId = data._id;
+            }
+
+            const paid = isInstallment ? Math.min(installments.advance || 0, total) : total;
+            const remaining = total - paid;
+            const installmentAmount = remaining / (installments.count || 1);
+
+            await api.post('/sales', {
+                customer: customerId,
+                customerName: customer.name,
+                customerPhone: customer.phone,
+                items: cart.map(item => ({
+                    product: item._id,
+                    name: item.name,
+                    quantity: item.quantity,
+                    unitPrice: item.sellingPrice,
+                    purchasePrice: item.purchasePrice,
+                    subtotal: item.sellingPrice * item.quantity,
+                })),
+                subtotal,
+                discount,
+                tax: 0,
+                total,
+                paymentMethod,
+                paid,
+                remaining,
+                isInstallment,
+                installments: isInstallment && remaining > 0 ? Array.from({ length: installments.count || 1 }, (_, i) => ({
+                    dueDate: new Date(Date.now() + (i + 1) * 30 * 24 * 60 * 60 * 1000),
+                    amount: Math.round(installmentAmount),
+                    paid: false,
+                })) : [],
+            });
+            setShowReceipt(true);
+            toast.success('تم إنشاء الفاتورة بنجاح ✅');
+            setCart([]);
+            setCustomer({ name: '', phone: '' });
+            setDiscount(0);
+            loadProducts();
+        } catch (err) {
+            toast.error(err.response?.data?.error || 'فشل إنشاء الفاتورة');
+        }
     };
 
     return (
@@ -112,9 +174,10 @@ export default function Sales() {
 
                     {/* Products Grid */}
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[60vh] overflow-y-auto pr-1">
+                        {filteredProducts.length === 0 && <div className="col-span-full text-center py-10 text-dark-400">لا توجد منتجات</div>}
                         {filteredProducts.map((product, i) => (
                             <motion.button
-                                key={product.id}
+                                key={product._id}
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: i * 0.03 }}
@@ -126,12 +189,12 @@ export default function Sales() {
                                 <h4 className="text-sm font-medium text-dark-200 truncate mb-1">{product.name}</h4>
                                 <p className="text-xs text-dark-500 font-mono mb-2">{product.code}</p>
                                 <div className="flex items-center justify-between">
-                                    <span className="text-green-400 font-bold text-sm">{product.price.toLocaleString()} ج.م</span>
-                                    <span className={`text-xs px-2 py-0.5 rounded ${product.stock > 10 ? 'bg-green-500/15 text-green-400' :
-                                            product.stock > 0 ? 'bg-yellow-500/15 text-yellow-400' :
+                                    <span className="text-green-400 font-bold text-sm">{product.sellingPrice.toLocaleString()} ج.م</span>
+                                    <span className={`text-xs px-2 py-0.5 rounded ${product.quantity > 10 ? 'bg-green-500/15 text-green-400' :
+                                            product.quantity > 0 ? 'bg-yellow-500/15 text-yellow-400' :
                                                 'bg-red-500/15 text-red-400'
                                         }`}>
-                                        {product.stock} متاح
+                                        {product.quantity} متاح
                                     </span>
                                 </div>
                             </motion.button>
@@ -145,6 +208,17 @@ export default function Sales() {
                     <div className="glass rounded-2xl p-4">
                         <h3 className="text-sm font-semibold text-dark-300 mb-3">👤 بيانات العميل</h3>
                         <div className="space-y-2">
+                            <select
+                                className="input-dark w-full px-3 py-2 rounded-lg text-sm"
+                                value=""
+                                onChange={e => {
+                                    const c = customers.find(x => x._id === e.target.value);
+                                    if (c) setCustomer({ name: c.name, phone: c.phone });
+                                }}
+                            >
+                                <option value="">-- اختيار عميل موجود --</option>
+                                {customers.map(c => <option key={c._id} value={c._id}>{c.name} - {c.phone}</option>)}
+                            </select>
                             <input
                                 placeholder="اسم العميل"
                                 className="input-dark w-full px-3 py-2 rounded-lg text-sm"
@@ -169,34 +243,34 @@ export default function Sales() {
                             ) : (
                                 cart.map(item => (
                                     <motion.div
-                                        key={item.id}
+                                        key={item._id}
                                         layout
                                         className="flex items-center gap-2 p-2 bg-dark-800/50 rounded-lg"
                                     >
                                         <div className="flex-1 min-w-0">
                                             <p className="text-sm text-dark-200 truncate">{item.name}</p>
-                                            <p className="text-xs text-green-400">{item.price.toLocaleString()} ج.م</p>
+                                            <p className="text-xs text-green-400">{item.sellingPrice.toLocaleString()} ج.م</p>
                                         </div>
                                         <div className="flex items-center gap-1">
                                             <button
-                                                onClick={() => updateQuantity(item.id, -1)}
+                                                onClick={() => updateQuantity(item._id, -1)}
                                                 className="w-6 h-6 rounded bg-dark-700 flex items-center justify-center text-dark-300 hover:bg-dark-600"
                                             >
                                                 <Minus size={12} />
                                             </button>
                                             <span className="w-6 text-center text-sm">{item.quantity}</span>
                                             <button
-                                                onClick={() => updateQuantity(item.id, 1)}
+                                                onClick={() => updateQuantity(item._id, 1)}
                                                 className="w-6 h-6 rounded bg-dark-700 flex items-center justify-center text-dark-300 hover:bg-dark-600"
                                             >
                                                 <Plus size={12} />
                                             </button>
                                         </div>
                                         <span className="text-sm font-semibold w-20 text-left">
-                                            {(item.price * item.quantity).toLocaleString()}
+                                            {(item.sellingPrice * item.quantity).toLocaleString()}
                                         </span>
                                         <button
-                                            onClick={() => removeFromCart(item.id)}
+                                            onClick={() => removeFromCart(item._id)}
                                             className="text-red-400 hover:text-red-300"
                                         >
                                             <Trash2 size={14} />
@@ -360,9 +434,9 @@ function ReceiptModal({ customer, cart, total, discount, paymentMethod, onClose 
 
                     <div className="border-t border-dark-800 pt-3">
                         {cart.map(item => (
-                            <div key={item.id} className="flex justify-between text-sm py-1">
+                            <div key={item._id} className="flex justify-between text-sm py-1">
                                 <span>{item.name} × {item.quantity}</span>
-                                <span>{(item.price * item.quantity).toLocaleString()} ج.م</span>
+                                <span>{(item.sellingPrice * item.quantity).toLocaleString()} ج.م</span>
                             </div>
                         ))}
                         {discount > 0 && (

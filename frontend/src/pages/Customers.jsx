@@ -1,21 +1,42 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Search, Phone, MapPin, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
-
-const sampleCustomers = [
-    { id: 1, name: 'أحمد محمد', phone: '01012345678', address: 'القاهرة - المعادي', nationalId: '29001011234567', totalPurchases: 45000, totalDebt: 5000, notes: 'عميل VIP' },
-    { id: 2, name: 'سارة علي', phone: '01198765432', address: 'الجيزة - الدقي', nationalId: '', totalPurchases: 12000, totalDebt: 0, notes: '' },
-    { id: 3, name: 'محمود حسن', phone: '01234567890', address: 'الإسكندرية - سموحة', nationalId: '28505011234567', totalPurchases: 78000, totalDebt: 15000, notes: 'يشتري بالأقساط' },
-    { id: 4, name: 'فاطمة أحمد', phone: '01098765432', address: 'المنصورة', nationalId: '', totalPurchases: 8500, totalDebt: 0, notes: '' },
-    { id: 5, name: 'عبدالله خالد', phone: '01112345678', address: 'المنيا', nationalId: '29502011234567', totalPurchases: 32000, totalDebt: 8500, notes: 'يحتاج متابعة' },
-];
+import api from '../api/axios';
 
 export default function Customers() {
-    const [customers, setCustomers] = useState(sampleCustomers);
+    const [customers, setCustomers] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
     const [selectedCustomer, setSelectedCustomer] = useState(null);
+
+    useEffect(() => {
+        loadCustomers();
+    }, []);
+
+    const loadCustomers = async () => {
+        try {
+            setLoading(true);
+            const { data } = await api.get('/customers');
+            setCustomers(data);
+        } catch (err) {
+            toast.error('فشل تحميل العملاء');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAdd = async (customer) => {
+        try {
+            const { data } = await api.post('/customers', customer);
+            setCustomers([data, ...customers]);
+            setShowAddModal(false);
+            toast.success('تم إضافة العميل بنجاح');
+        } catch (err) {
+            toast.error(err.response?.data?.error || 'فشل إضافة العميل');
+        }
+    };
 
     const filteredCustomers = customers.filter(c =>
         c.name.includes(searchQuery) || c.phone.includes(searchQuery)
@@ -52,10 +73,15 @@ export default function Customers() {
             </div>
 
             {/* Customers Grid */}
+            {loading ? (
+                <div className="text-center py-20 text-dark-400">جاري التحميل...</div>
+            ) : customers.length === 0 ? (
+                <div className="text-center py-20 text-dark-400">لا يوجد عملاء - اضغط "إضافة عميل"</div>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredCustomers.map((customer, i) => (
                     <motion.div
-                        key={customer.id}
+                        key={customer._id}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.1 }}
@@ -109,6 +135,7 @@ export default function Customers() {
                     </motion.div>
                 ))}
             </div>
+            )}
 
             {/* Customer Details Modal */}
             <AnimatePresence>
@@ -148,7 +175,7 @@ export default function Customers() {
 
             {/* Add Customer Modal */}
             <AnimatePresence>
-                {showAddModal && <AddCustomerModal onClose={() => setShowAddModal(false)} />}
+                {showAddModal && <AddCustomerModal onClose={() => setShowAddModal(false)} onAdd={handleAdd} />}
             </AnimatePresence>
         </div>
     );
@@ -163,11 +190,12 @@ function DetailRow({ label, value }) {
     );
 }
 
-function AddCustomerModal({ onClose }) {
+function AddCustomerModal({ onClose, onAdd }) {
+    const [form, setForm] = useState({ name: '', phone: '', address: '', nationalId: '', notes: '' });
+
     const handleSubmit = (e) => {
         e.preventDefault();
-        toast.success('تم إضافة العميل بنجاح');
-        onClose();
+        onAdd(form);
     };
 
     return (
@@ -192,23 +220,28 @@ function AddCustomerModal({ onClose }) {
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
                         <label className="block text-dark-300 text-sm mb-1">الاسم *</label>
-                        <input required className="input-dark w-full px-3 py-2 rounded-lg" />
+                        <input required className="input-dark w-full px-3 py-2 rounded-lg"
+                            value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
                     </div>
                     <div>
                         <label className="block text-dark-300 text-sm mb-1">رقم الهاتف *</label>
-                        <input required className="input-dark w-full px-3 py-2 rounded-lg" />
+                        <input required className="input-dark w-full px-3 py-2 rounded-lg"
+                            value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
                     </div>
                     <div>
                         <label className="block text-dark-300 text-sm mb-1">العنوان</label>
-                        <input className="input-dark w-full px-3 py-2 rounded-lg" />
+                        <input className="input-dark w-full px-3 py-2 rounded-lg"
+                            value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} />
                     </div>
                     <div>
                         <label className="block text-dark-300 text-sm mb-1">الرقم القومي</label>
-                        <input className="input-dark w-full px-3 py-2 rounded-lg" />
+                        <input className="input-dark w-full px-3 py-2 rounded-lg"
+                            value={form.nationalId} onChange={e => setForm({ ...form, nationalId: e.target.value })} />
                     </div>
                     <div>
                         <label className="block text-dark-300 text-sm mb-1">ملاحظات</label>
-                        <textarea className="input-dark w-full px-3 py-2 rounded-lg h-16" />
+                        <textarea className="input-dark w-full px-3 py-2 rounded-lg h-16"
+                            value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
                     </div>
                     <div className="flex gap-3 pt-2">
                         <button type="submit" className="btn-success flex-1 py-2.5 rounded-xl font-semibold">حفظ</button>

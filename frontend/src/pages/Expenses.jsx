@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
+import api from '../api/axios';
 
 const expenseCategories = [
     { id: 'electricity', name: 'كهرباء', icon: '⚡', color: 'from-yellow-500 to-amber-600' },
@@ -16,18 +17,38 @@ const expenseCategories = [
     { id: 'other', name: 'أخرى', icon: '📦', color: 'from-gray-500 to-zinc-600' },
 ];
 
-const sampleExpenses = [
-    { id: 1, category: 'electricity', amount: 2500, date: '2024-01-15', notes: 'فاتورة يناير' },
-    { id: 2, category: 'internet', amount: 450, date: '2024-01-10', notes: 'اشتراك شهري' },
-    { id: 3, category: 'rent', amount: 5000, date: '2024-01-01', notes: 'إيجار يناير' },
-    { id: 4, category: 'cleaning', amount: 800, date: '2024-01-08', notes: 'نظافة المحل' },
-    { id: 5, category: 'salaries', amount: 8000, date: '2024-01-25', notes: 'مرتبات الموظفين' },
-];
-
 export default function Expenses() {
-    const [expenses, setExpenses] = useState(sampleExpenses);
+    const [expenses, setExpenses] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+
+    useEffect(() => {
+        loadExpenses();
+    }, []);
+
+    const loadExpenses = async () => {
+        try {
+            setLoading(true);
+            const { data } = await api.get('/expenses');
+            setExpenses(data);
+        } catch (err) {
+            toast.error('فشل تحميل المصروفات');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAdd = async (expense) => {
+        try {
+            const { data } = await api.post('/expenses', expense);
+            setExpenses([data, ...expenses]);
+            setShowAddModal(false);
+            toast.success('تم إضافة المصروف بنجاح');
+        } catch (err) {
+            toast.error(err.response?.data?.error || 'فشل إضافة المصروف');
+        }
+    };
 
     const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
 
@@ -116,8 +137,12 @@ export default function Expenses() {
                         </tr>
                     </thead>
                     <tbody>
-                        {filteredExpenses.map(exp => (
-                            <tr key={exp.id}>
+                        {loading ? (
+                            <tr><td colSpan="4" className="text-center py-10 text-dark-400">جاري التحميل...</td></tr>
+                        ) : filteredExpenses.length === 0 ? (
+                            <tr><td colSpan="4" className="text-center py-10 text-dark-400">لا توجد مصروفات</td></tr>
+                        ) : filteredExpenses.map(exp => (
+                            <tr key={exp._id}>
                                 <td>
                                     <span className="flex items-center gap-2">
                                         <span>{expenseCategories.find(c => c.id === exp.category)?.icon}</span>
@@ -125,7 +150,7 @@ export default function Expenses() {
                                     </span>
                                 </td>
                                 <td className="text-red-400 font-semibold">{exp.amount.toLocaleString()} ج.م</td>
-                                <td className="text-dark-400 text-sm">{exp.date}</td>
+                                <td className="text-dark-400 text-sm">{new Date(exp.date).toLocaleDateString('ar-EG')}</td>
                                 <td className="text-dark-400 text-sm">{exp.notes}</td>
                             </tr>
                         ))}
@@ -135,17 +160,23 @@ export default function Expenses() {
 
             {/* Add Expense Modal */}
             <AnimatePresence>
-                {showAddModal && <AddExpenseModal onClose={() => setShowAddModal(false)} />}
+                {showAddModal && <AddExpenseModal onClose={() => setShowAddModal(false)} onAdd={handleAdd} />}
             </AnimatePresence>
         </div>
     );
 }
 
-function AddExpenseModal({ onClose }) {
+function AddExpenseModal({ onClose, onAdd }) {
+    const [form, setForm] = useState({ category: 'other', amount: '', date: '', notes: '' });
+
     const handleSubmit = (e) => {
         e.preventDefault();
-        toast.success('تم إضافة المصروف بنجاح');
-        onClose();
+        onAdd({
+            category: form.category,
+            amount: Number(form.amount),
+            date: form.date ? new Date(form.date) : new Date(),
+            notes: form.notes,
+        });
     };
 
     return (
@@ -170,7 +201,8 @@ function AddExpenseModal({ onClose }) {
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
                         <label className="block text-dark-300 text-sm mb-1">التصنيف *</label>
-                        <select required className="input-dark w-full px-3 py-2 rounded-lg">
+                        <select required className="input-dark w-full px-3 py-2 rounded-lg"
+                            value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
                             {expenseCategories.map(cat => (
                                 <option key={cat.id} value={cat.id}>{cat.icon} {cat.name}</option>
                             ))}
@@ -178,15 +210,18 @@ function AddExpenseModal({ onClose }) {
                     </div>
                     <div>
                         <label className="block text-dark-300 text-sm mb-1">المبلغ *</label>
-                        <input type="number" required className="input-dark w-full px-3 py-2 rounded-lg" />
+                        <input type="number" required className="input-dark w-full px-3 py-2 rounded-lg"
+                            value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
                     </div>
                     <div>
                         <label className="block text-dark-300 text-sm mb-1">التاريخ</label>
-                        <input type="date" className="input-dark w-full px-3 py-2 rounded-lg" />
+                        <input type="date" className="input-dark w-full px-3 py-2 rounded-lg"
+                            value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
                     </div>
                     <div>
                         <label className="block text-dark-300 text-sm mb-1">ملاحظات</label>
-                        <textarea className="input-dark w-full px-3 py-2 rounded-lg h-16" />
+                        <textarea className="input-dark w-full px-3 py-2 rounded-lg h-16"
+                            value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
                     </div>
                     <div className="flex gap-3 pt-2">
                         <button type="submit" className="btn-success flex-1 py-2.5 rounded-xl font-semibold">حفظ</button>

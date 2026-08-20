@@ -5,7 +5,7 @@ const Product = require('../models/Product');
 // Get all products
 router.get('/', async (req, res) => {
     try {
-        const { category, search, lowStock } = req.query;
+        const { category, search, lowStock, limit } = req.query;
         let query = {};
 
         if (category) query.category = category;
@@ -18,11 +18,20 @@ router.get('/', async (req, res) => {
                 { serialNumber: new RegExp(search, 'i') }
             ];
         }
+
+        const limitNum = limit ? Number(limit) : 0;
+
         if (lowStock) {
-            query.$expr = { $lte: ['$quantity', '$alertQuantity'] };
+            const lowStockIds = await Product.collection.aggregate([
+                { $match: { $expr: { $lte: ['$quantity', '$alertQuantity'] } } },
+                { $project: { _id: 1 } }
+            ]).toArray();
+            query._id = { $in: lowStockIds.map(i => i._id) };
         }
 
-        const products = await Product.find(query).sort({ createdAt: -1 });
+        const products = await Product.find(query)
+            .sort({ createdAt: -1 })
+            .limit(limitNum);
         res.json(products);
     } catch (err) {
         res.status(500).json({ error: err.message });

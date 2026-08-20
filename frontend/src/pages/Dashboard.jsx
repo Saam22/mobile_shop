@@ -1,11 +1,12 @@
 // src/pages/Dashboard.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ShoppingCart, TrendingUp, Package, Wrench, AlertTriangle,
     Users, DollarSign, Clock, Plus, Download, RefreshCw,
-    ChevronDown, Filter, Eye, Edit2, Trash2
+    ChevronDown, Eye, X, Printer
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import StatCard from '../components/StatCard';
 import {
     BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -14,109 +15,119 @@ import {
 import api from '../api/axios';
 import toast from 'react-hot-toast';
 
-// ألوان الرسوم البيانية
+const paymentLabels = {
+    cash: 'نقدي',
+    vodafone_cash: 'فودافون كاش',
+    etisalat_cash: 'اتصالات كاش',
+    we_pay: 'WE Pay',
+    instapay: 'إنستا باي',
+    bank_transfer: 'تحويل بنكي',
+};
+
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
+const tooltipStyle = {
+    background: '#1e293b',
+    border: '1px solid #334155',
+    borderRadius: '0.75rem',
+    color: '#e2e8f0',
+    fontFamily: 'Cairo, sans-serif',
+};
+
 export default function Dashboard() {
+    const navigate = useNavigate();
     const [stats, setStats] = useState(null);
-    const [chartData, setChartData] = useState([]);
     const [recentSales, setRecentSales] = useState([]);
     const [lowStockProducts, setLowStockProducts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [dateRange, setDateRange] = useState('today');
     const [chartType, setChartType] = useState('sales');
+    const [selectedSale, setSelectedSale] = useState(null);
 
-    // جلب البيانات من الباك إند
-    const fetchDashboardData = async () => {
+    const fetchDashboardData = useCallback(async (range) => {
         try {
             setLoading(true);
             setError(null);
 
-            // جلب الإحصائيات
             const [statsRes, salesRes, productsRes] = await Promise.all([
-                api.get('/dashboard/stats'),
-                api.get('/sales?limit=5'),
-                api.get('/products?lowStock=true&limit=5')
+                api.get('/dashboard/stats', { params: { range } }),
+                api.get('/sales'),
+                api.get('/products', { params: { lowStock: true } }),
             ]);
 
             setStats(statsRes.data);
-            setRecentSales(salesRes.data);
+            setRecentSales(salesRes.data.slice(0, 5).map(s => ({
+                ...s,
+                methodLabel: paymentLabels[s.paymentMethod] || s.paymentMethod,
+                timeLabel: new Date(s.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+            })));
             setLowStockProducts(productsRes.data);
-
-            // توليد بيانات الرسم البياني (يمكن استبدالها بـ API حقيقي)
-            generateChartData(dateRange);
-
         } catch (err) {
             console.error('Dashboard fetch error:', err);
             setError('فشل تحميل البيانات. تأكد من اتصال السيرفر.');
             toast.error('حدث خطأ أثناء تحميل الداشبورد');
-
-            // بيانات احتياطية للتجربة
-            setStats({
-                dailySales: { total: 45200, count: 12 },
-                monthlySales: { total: 385000, count: 89 },
-                totalProducts: 456,
-                pendingMaintenance: 8,
-                dailyExpenses: { total: 2800 },
-                lowStock: 15,
-                totalDebt: 28500,
-                monthlyProfit: 125000,
-            });
-            generateChartData(dateRange);
         } finally {
             setLoading(false);
         }
-    };
-
-    // توليد بيانات الرسم البياني حسب الفترة
-    const generateChartData = (range) => {
-        const days = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-        const months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو'];
-
-        let labels = range === 'today' ? ['ص', 'م', 'ع', 'ل'] :
-            range === 'week' ? days.slice(0, 7) : months.slice(0, 6);
-
-        const data = labels.map((label, i) => ({
-            name: label,
-            sales: Math.floor(Math.random() * 30000) + 5000,
-            profit: Math.floor(Math.random() * 20000) + 3000,
-            expenses: Math.floor(Math.random() * 10000) + 1000,
-        }));
-
-        setChartData(data);
-    };
-
-    useEffect(() => {
-        fetchDashboardData();
     }, []);
 
     useEffect(() => {
-        if (!loading) generateChartData(dateRange);
-    }, [dateRange]);
+        fetchDashboardData(dateRange);
+    }, [dateRange, fetchDashboardData]);
 
-    // إعادة التحميل
     const handleRefresh = () => {
-        fetchDashboardData();
+        fetchDashboardData(dateRange);
         toast.success('تم تحديث البيانات');
     };
 
-    // تصدير التقرير
     const handleExport = () => {
-        toast.success('جاري تحضير التقرير...');
-        // هنا يمكن إضافة منطق التصدير الفعلي
-        setTimeout(() => {
-            toast.success('تم تصدير التقرير بنجاح! 📄');
-        }, 1500);
+        if (recentSales.length === 0) {
+            toast.error('لا توجد مبيعات للتصدير');
+            return;
+        }
+        const header = ['رقم الفاتورة', 'العميل', 'المبلغ', 'طريقة الدفع', 'التاريخ'];
+        const rows = recentSales.map(s => [
+            s.invoiceNumber,
+            s.customerName || s.customer?.name || '-',
+            s.total,
+            paymentLabels[s.paymentMethod] || s.paymentMethod,
+            new Date(s.date).toLocaleString('ar-EG'),
+        ]);
+        const csv = [header, ...rows].map(r => r.join(',')).join('\n');
+        const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `mobileshop-report-${dateRange}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success('تم تصدير التقرير بنجاح! 📄');
     };
 
-    // أزرار الإجراءات السريعة
     const quickActions = [
-        { icon: Plus, label: 'منتج جديد', path: '/inventory/new', color: 'bg-blue-500' },
-        { icon: ShoppingCart, label: 'فاتورة جديدة', path: '/sales/new', color: 'bg-green-500' },
-        { icon: Users, label: 'عميل جديد', path: '/customers/new', color: 'bg-purple-500' },
-        { icon: Wrench, label: 'طلب صيانة', path: '/maintenance/new', color: 'bg-orange-500' },
+        { icon: Plus, label: 'منتج جديد', path: '/inventory', color: 'bg-blue-500' },
+        { icon: ShoppingCart, label: 'فاتورة جديدة', path: '/sales', color: 'bg-green-500' },
+        { icon: Users, label: 'عميل جديد', path: '/customers', color: 'bg-purple-500' },
+        { icon: Wrench, label: 'طلب صيانة', path: '/maintenance', color: 'bg-orange-500' },
     ];
+
+    const alerts = [];
+    if (stats?.overdue?.count > 0) {
+        alerts.push({ type: 'danger', text: `قسط متأخر لـ ${stats.overdue.count} فاتورة بإجمالي ${stats.overdue.total.toLocaleString()} ج.م`, time: 'يحتاج متابعة' });
+    }
+    if (stats?.lowStock > 0) {
+        alerts.push({ type: 'warning', text: `${stats.lowStock} منتجات قاربت على النفاد`, time: 'حالي' });
+    }
+    if (stats?.pendingMaintenance > 0) {
+        alerts.push({ type: 'info', text: `${stats.pendingMaintenance} أجهزة صيانة في الانتظار`, time: 'حالي' });
+    }
+    if (stats?.totalDebt > 0) {
+        alerts.push({ type: 'warning', text: `إجمالي ديون العملاء: ${stats.totalDebt.toLocaleString()} ج.م`, time: 'حالي' });
+    }
+    if (alerts.length === 0) {
+        alerts.push({ type: 'info', text: 'لا توجد تنبيهات - كل شيء على ما يرام 🎉', time: 'حالي' });
+    }
 
     if (loading && !stats) {
         return (
@@ -128,6 +139,12 @@ export default function Dashboard() {
             </div>
         );
     }
+
+    const pieData = [
+        { name: 'مبيعات', value: stats?.todaySales?.total || 0 },
+        { name: 'مصروفات', value: stats?.todayExpenses?.total || 0 },
+        { name: 'أرباح', value: Math.max((stats?.todaySales?.total - stats?.todayExpenses?.total) || 0, 0) },
+    ];
 
     return (
         <div className="space-y-6 page-enter">
@@ -141,9 +158,7 @@ export default function Dashboard() {
 
                 <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                     <div>
-                        <h1 className="text-2xl font-bold text-dark-100">
-                            لوحة التحكم 📊
-                        </h1>
+                        <h1 className="text-2xl font-bold text-dark-100">لوحة التحكم 📊</h1>
                         <p className="text-dark-400 mt-1">
                             {new Date().toLocaleDateString('ar-EG', {
                                 weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
@@ -152,7 +167,6 @@ export default function Dashboard() {
                     </div>
 
                     <div className="flex items-center gap-3">
-                        {/* Date Filter */}
                         <div className="relative">
                             <select
                                 value={dateRange}
@@ -160,13 +174,12 @@ export default function Dashboard() {
                                 className="input-dark px-4 py-2 pr-10 rounded-xl text-sm appearance-none cursor-pointer"
                             >
                                 <option value="today">اليوم</option>
-                                <option value="week">هذا الأسبوع</option>
+                                <option value="week">آخر 7 أيام</option>
                                 <option value="month">هذا الشهر</option>
                             </select>
                             <ChevronDown className="absolute left-3 top-1/2 -translate-y-1/2 text-dark-500 pointer-events-none" size={16} />
                         </div>
 
-                        {/* Actions */}
                         <button
                             onClick={handleRefresh}
                             className="p-2.5 rounded-xl bg-dark-800 text-dark-300 hover:bg-dark-700 transition-colors"
@@ -199,7 +212,7 @@ export default function Dashboard() {
                             key={action.label}
                             whileHover={{ scale: 1.02, y: -2 }}
                             whileTap={{ scale: 0.98 }}
-                            onClick={() => toast.success(`سيتم الانتقال إلى: ${action.label}`)}
+                            onClick={() => navigate(action.path)}
                             className="glass rounded-xl p-4 flex flex-col items-center gap-2 card-hover group"
                         >
                             <div className={`w-10 h-10 rounded-lg ${action.color} flex items-center justify-center`}>
@@ -216,37 +229,37 @@ export default function Dashboard() {
             {/* Stats Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
-                    title="مبيعات اليوم"
-                    value={`${stats?.dailySales?.total?.toLocaleString() || 0} ج.م`}
-                    subValue={`${stats?.dailySales?.count || 0} عملية`}
+                    title={dateRange === 'today' ? 'مبيعات اليوم' : dateRange === 'week' ? 'مبيعات الأسبوع' : 'مبيعات الشهر'}
+                    value={`${stats?.sales?.total?.toLocaleString() || 0} ج.م`}
+                    subValue={`${stats?.sales?.count || 0} عملية`}
                     icon={ShoppingCart}
                     color="from-green-500 to-emerald-600"
-                    trend={12}
+                    trend={dateRange === 'month' ? stats?.monthlyTrend : stats?.dailyTrend}
                     delay={0.1}
                 />
                 <StatCard
                     title="مبيعات الشهر"
-                    value={`${stats?.monthlySales?.total?.toLocaleString() || 0} ج.م`}
-                    subValue={`${stats?.monthlySales?.count || 0} عملية`}
+                    value={`${stats?.monthSales?.total?.toLocaleString() || 0} ج.م`}
+                    subValue={`${stats?.monthSales?.count || 0} عملية`}
                     icon={TrendingUp}
                     color="from-blue-500 to-indigo-600"
-                    trend={8}
+                    trend={stats?.monthlyTrend}
                     delay={0.2}
                 />
                 <StatCard
                     title="صافي الأرباح"
-                    value={`${stats?.monthlyProfit?.toLocaleString() || 0} ج.م`}
+                    value={`${(stats?.monthlyProfit || 0).toLocaleString()} ج.م`}
+                    subValue="بعد خصم المصروفات"
                     icon={DollarSign}
                     color="from-purple-500 to-pink-600"
-                    trend={15}
                     delay={0.3}
                 />
                 <StatCard
                     title="مصروفات اليوم"
-                    value={`${stats?.dailyExpenses?.total?.toLocaleString() || 0} ج.م`}
+                    value={`${stats?.todayExpenses?.total?.toLocaleString() || 0} ج.م`}
                     icon={AlertTriangle}
                     color="from-red-500 to-orange-600"
-                    trend={-5}
+                    trend={stats?.expenseTrend}
                     isNegative
                     delay={0.4}
                 />
@@ -258,22 +271,25 @@ export default function Dashboard() {
                     delay={0.5}
                 />
                 <StatCard
-                    title="طلبات الصيانة"
+                    title="أجهزة الصيانة"
                     value={stats?.pendingMaintenance || 0}
+                    subValue={`${stats?.overdue?.count || 0} قسط متأخر`}
                     icon={Wrench}
                     color="from-amber-500 to-yellow-600"
                     delay={0.6}
                 />
                 <StatCard
-                    title="الديون المستحقة"
-                    value={`${stats?.totalDebt?.toLocaleString() || 0} ج.م`}
+                    title="ديون العملاء"
+                    value={`${(stats?.totalDebt || 0).toLocaleString()} ج.م`}
+                    subValue={`${stats?.totalCustomers || 0} عميل`}
                     icon={Users}
                     color="from-rose-500 to-red-600"
                     delay={0.7}
                 />
                 <StatCard
-                    title="⚠️ مخزون منخفض"
+                    title="مخزون منخفض"
                     value={stats?.lowStock || 0}
+                    subValue={`${stats?.activeEmployees || 0} موظف نشط`}
                     icon={Clock}
                     color="from-orange-500 to-red-600"
                     isWarning
@@ -327,75 +343,50 @@ export default function Dashboard() {
                         </div>
                     </div>
 
-                    <ResponsiveContainer width="100%" height={300}>
-                        {chartType === 'sales' ? (
-                            <BarChart data={chartData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
-                                <XAxis dataKey="name" stroke="#64748b" fontSize={11} />
-                                <YAxis stroke="#64748b" fontSize={11} tickFormatter={(v) => `${v / 1000}ك`} />
-                                <Tooltip
-                                    contentStyle={{
-                                        background: '#1e293b',
-                                        border: '1px solid #334155',
-                                        borderRadius: '0.75rem',
-                                        color: '#e2e8f0',
-                                        fontFamily: 'Cairo, sans-serif',
-                                    }}
-                                    formatter={(value) => [`${value.toLocaleString()} ج.م`, 'القيمة']}
-                                />
-                                <Bar dataKey="sales" fill="#3b82f6" radius={[6, 6, 0, 0]} name="المبيعات" />
-                                <Bar dataKey="expenses" fill="#ef4444" radius={[6, 6, 0, 0]} name="المصروفات" />
-                            </BarChart>
-                        ) : chartType === 'profit' ? (
-                            <LineChart data={chartData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
-                                <XAxis dataKey="name" stroke="#64748b" fontSize={11} />
-                                <YAxis stroke="#64748b" fontSize={11} tickFormatter={(v) => `${v / 1000}ك`} />
-                                <Tooltip
-                                    contentStyle={{
-                                        background: '#1e293b',
-                                        border: '1px solid #334155',
-                                        borderRadius: '0.75rem',
-                                        color: '#e2e8f0',
-                                        fontFamily: 'Cairo, sans-serif',
-                                    }}
-                                    formatter={(value) => [`${value.toLocaleString()} ج.م`, 'الربح']}
-                                />
-                                <Line type="monotone" dataKey="profit" stroke="#10b981" strokeWidth={3} dot={{ fill: '#10b981', r: 4 }} name="صافي الربح" />
-                            </LineChart>
-                        ) : (
-                            <PieChart>
-                                <Pie
-                                    data={[
-                                        { name: 'مبيعات', value: stats?.dailySales?.total || 0 },
-                                        { name: 'مصروفات', value: stats?.dailyExpenses?.total || 0 },
-                                        { name: 'أرباح', value: (stats?.dailySales?.total - stats?.dailyExpenses?.total) || 0 },
-                                    ]}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={100}
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                >
-                                    {[0, 1, 2].map((index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip
-                                    contentStyle={{
-                                        background: '#1e293b',
-                                        border: '1px solid #334155',
-                                        borderRadius: '0.75rem',
-                                        color: '#e2e8f0',
-                                        fontFamily: 'Cairo, sans-serif',
-                                    }}
-                                    formatter={(value) => [`${value.toLocaleString()} ج.م`, '']}
-                                />
-                                <Legend verticalAlign="bottom" height={36} formatter={(v) => <span className="text-dark-300 text-sm">{v}</span>} />
-                            </PieChart>
-                        )}
-                    </ResponsiveContainer>
+                    {stats?.chartData?.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={300}>
+                            {chartType === 'sales' ? (
+                                <BarChart data={stats.chartData}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
+                                    <XAxis dataKey="name" stroke="#64748b" fontSize={11} />
+                                    <YAxis stroke="#64748b" fontSize={11} tickFormatter={(v) => `${v / 1000}ك`} />
+                                    <Tooltip contentStyle={tooltipStyle} formatter={(value) => [`${value.toLocaleString()} ج.م`, 'القيمة']} />
+                                    <Bar dataKey="sales" fill="#3b82f6" radius={[6, 6, 0, 0]} name="المبيعات" />
+                                    <Bar dataKey="expenses" fill="#ef4444" radius={[6, 6, 0, 0]} name="المصروفات" />
+                                </BarChart>
+                            ) : chartType === 'profit' ? (
+                                <LineChart data={stats.chartData}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
+                                    <XAxis dataKey="name" stroke="#64748b" fontSize={11} />
+                                    <YAxis stroke="#64748b" fontSize={11} tickFormatter={(v) => `${v / 1000}ك`} />
+                                    <Tooltip contentStyle={tooltipStyle} formatter={(value) => [`${value.toLocaleString()} ج.م`, 'الربح']} />
+                                    <Line type="monotone" dataKey="profit" stroke="#10b981" strokeWidth={3} dot={{ fill: '#10b981', r: 4 }} name="صافي الربح" />
+                                </LineChart>
+                            ) : (
+                                <PieChart>
+                                    <Pie
+                                        data={pieData}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={60}
+                                        outerRadius={100}
+                                        paddingAngle={5}
+                                        dataKey="value"
+                                    >
+                                        {pieData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip contentStyle={tooltipStyle} formatter={(value) => [`${value.toLocaleString()} ج.م`, '']} />
+                                    <Legend verticalAlign="bottom" height={36} formatter={(v) => <span className="text-dark-300 text-sm">{v}</span>} />
+                                </PieChart>
+                            )}
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="h-[300px] flex items-center justify-center text-dark-500">
+                            لا توجد بيانات في هذه الفترة
+                        </div>
+                    )}
                 </motion.div>
 
                 {/* Alerts & Low Stock */}
@@ -409,11 +400,7 @@ export default function Dashboard() {
                     <div className="glass rounded-2xl p-5">
                         <h3 className="text-lg font-semibold text-dark-200 mb-4">🔔 التنبيهات</h3>
                         <div className="space-y-3">
-                            {[
-                                { type: 'danger', text: 'قسط متأخر - محمد عبدالله (1,500 ج.م)', time: 'منذ يومين' },
-                                { type: 'warning', text: `⚠️ ${stats?.lowStock || 0} منتجات قاربت على النفاد`, time: 'حالي' },
-                                { type: 'info', text: 'جهاز صيانة جديد في الانتظار', time: 'منذ ساعة' },
-                            ].map((alert, i) => (
+                            {alerts.map((alert, i) => (
                                 <motion.div
                                     key={i}
                                     initial={{ opacity: 0, x: 20 }}
@@ -435,16 +422,17 @@ export default function Dashboard() {
                     <div className="glass rounded-2xl p-5">
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-semibold text-dark-200">⚠️ مخزون منخفض</h3>
-                            <button className="text-primary-400 text-xs hover:text-primary-300 transition-colors">
+                            <button
+                                onClick={() => navigate('/inventory')}
+                                className="text-primary-400 text-xs hover:text-primary-300 transition-colors"
+                            >
                                 عرض الكل ←
                             </button>
                         </div>
                         <div className="space-y-3">
-                            {(lowStockProducts.length > 0 ? lowStockProducts : [
-                                { name: 'iPhone 15 Pro', quantity: 2, alertQuantity: 5 },
-                                { name: 'AirPods Pro', quantity: 3, alertQuantity: 5 },
-                                { name: 'Samsung S24', quantity: 1, alertQuantity: 3 },
-                            ]).slice(0, 3).map((product, i) => (
+                            {lowStockProducts.length === 0 ? (
+                                <p className="text-dark-500 text-sm text-center py-4">لا توجد منتجات منخفضة المخزون 🎉</p>
+                            ) : lowStockProducts.slice(0, 3).map((product, i) => (
                                 <div key={i} className="flex items-center justify-between p-2 bg-dark-800/50 rounded-lg">
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm text-dark-200 truncate">{product.name}</p>
@@ -453,7 +441,7 @@ export default function Dashboard() {
                                                 className={`h-1.5 rounded-full transition-all ${product.quantity <= 1 ? 'bg-red-500' :
                                                         product.quantity <= 3 ? 'bg-yellow-500' : 'bg-green-500'
                                                     }`}
-                                                style={{ width: `${Math.min((product.quantity / product.alertQuantity) * 100, 100)}%` }}
+                                                style={{ width: `${Math.min((product.quantity / (product.alertQuantity || 1)) * 100, 100)}%` }}
                                             />
                                         </div>
                                     </div>
@@ -477,7 +465,10 @@ export default function Dashboard() {
             >
                 <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold text-dark-200">📋 آخر المبيعات</h3>
-                    <button className="text-primary-400 text-sm hover:text-primary-300 transition-colors flex items-center gap-1">
+                    <button
+                        onClick={() => navigate('/sales')}
+                        className="text-primary-400 text-sm hover:text-primary-300 transition-colors flex items-center gap-1"
+                    >
                         <Eye size={14} />
                         عرض الكل
                     </button>
@@ -496,37 +487,35 @@ export default function Dashboard() {
                             </tr>
                         </thead>
                         <tbody>
-                            {(recentSales.length > 0 ? recentSales : [
-                                { id: 'INV-001234', customer: 'أحمد محمد', amount: 15500, method: 'نقدي', time: '10:30 ص' },
-                                { id: 'INV-001233', customer: 'سارة علي', amount: 850, method: 'فودافون كاش', time: '09:45 ص' },
-                                { id: 'INV-001232', customer: 'محمود حسن', amount: 3200, method: 'إنستا باي', time: '09:15 ص' },
-                                { id: 'INV-001231', customer: 'فاطمة أحمد', amount: 12000, method: 'أقساط', time: '08:30 ص' },
-                            ]).map((sale, i) => (
+                            {recentSales.length === 0 ? (
+                                <tr>
+                                    <td colSpan="6" className="py-10 text-center text-dark-500">لا توجد مبيعات بعد</td>
+                                </tr>
+                            ) : recentSales.map((sale, i) => (
                                 <motion.tr
-                                    key={sale.id}
+                                    key={sale._id}
                                     initial={{ opacity: 0, x: -10 }}
                                     animate={{ opacity: 1, x: 0 }}
                                     transition={{ delay: 0.6 + i * 0.05 }}
                                     className="border-b border-dark-800/50 hover:bg-dark-800/30 transition-colors"
                                 >
-                                    <td className="py-3 font-mono text-primary-400 text-sm">{sale.id}</td>
-                                    <td className="py-3 text-dark-200 text-sm">{sale.customer}</td>
-                                    <td className="py-3 font-semibold text-dark-100">{sale.amount.toLocaleString()} ج.م</td>
+                                    <td className="py-3 font-mono text-primary-400 text-sm">{sale.invoiceNumber}</td>
+                                    <td className="py-3 text-dark-200 text-sm">{sale.customerName || sale.customer?.name || '-'}</td>
+                                    <td className="py-3 font-semibold text-dark-100">{sale.total.toLocaleString()} ج.م</td>
                                     <td className="py-3">
                                         <span className="px-2.5 py-1 rounded-lg text-xs bg-dark-800 text-dark-300 border border-dark-700">
-                                            {sale.method}
+                                            {sale.methodLabel}
                                         </span>
                                     </td>
-                                    <td className="py-3 text-dark-400 text-sm">{sale.time}</td>
+                                    <td className="py-3 text-dark-400 text-sm">{sale.timeLabel}</td>
                                     <td className="py-3">
-                                        <div className="flex items-center gap-1">
-                                            <button className="p-1.5 rounded-lg text-dark-400 hover:text-blue-400 hover:bg-dark-800 transition-colors">
-                                                <Eye size={14} />
-                                            </button>
-                                            <button className="p-1.5 rounded-lg text-dark-400 hover:text-green-400 hover:bg-dark-800 transition-colors">
-                                                <Edit2 size={14} />
-                                            </button>
-                                        </div>
+                                        <button
+                                            onClick={() => setSelectedSale(sale)}
+                                            className="p-1.5 rounded-lg text-dark-400 hover:text-blue-400 hover:bg-dark-800 transition-colors"
+                                            title="عرض التفاصيل"
+                                        >
+                                            <Eye size={14} />
+                                        </button>
                                     </td>
                                 </motion.tr>
                             ))}
@@ -534,6 +523,103 @@ export default function Dashboard() {
                     </table>
                 </div>
             </motion.div>
+
+            {/* Sale Details Modal */}
+            <AnimatePresence>
+                {selectedSale && (
+                    <SaleDetailsModal sale={selectedSale} onClose={() => setSelectedSale(null)} />
+                )}
+            </AnimatePresence>
         </div>
+    );
+}
+
+function SaleDetailsModal({ sale, onClose }) {
+    return (
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 modal-overlay z-50 flex items-center justify-center p-4"
+            onClick={onClose}
+        >
+            <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                className="glass rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+                onClick={e => e.stopPropagation()}
+            >
+                <div className="p-6 border-b border-dark-800 flex items-center justify-between sticky top-0 bg-dark-900/95 backdrop-blur z-10">
+                    <h2 className="text-xl font-bold text-dark-100">🧾 تفاصيل الفاتورة</h2>
+                    <button onClick={onClose} className="text-dark-400 hover:text-white transition-colors">
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <div className="p-6 space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="p-3 bg-dark-800/50 rounded-xl">
+                            <p className="text-xs text-dark-500">رقم الفاتورة</p>
+                            <p className="font-mono text-primary-400 text-sm mt-1">{sale.invoiceNumber}</p>
+                        </div>
+                        <div className="p-3 bg-dark-800/50 rounded-xl">
+                            <p className="text-xs text-dark-500">العميل</p>
+                            <p className="text-dark-200 text-sm mt-1">{sale.customerName || sale.customer?.name || '-'}</p>
+                        </div>
+                        <div className="p-3 bg-dark-800/50 rounded-xl">
+                            <p className="text-xs text-dark-500">طريقة الدفع</p>
+                            <p className="text-dark-200 text-sm mt-1">{sale.methodLabel}</p>
+                        </div>
+                        <div className="p-3 bg-dark-800/50 rounded-xl">
+                            <p className="text-xs text-dark-500">التاريخ</p>
+                            <p className="text-dark-200 text-sm mt-1">{new Date(sale.date).toLocaleString('ar-EG')}</p>
+                        </div>
+                    </div>
+
+                    <div className="border-t border-dark-800 pt-4">
+                        <h3 className="text-sm font-semibold text-dark-300 mb-3">المنتجات</h3>
+                        <div className="space-y-2">
+                            {(sale.items || []).map((item, i) => (
+                                <div key={i} className="flex items-center justify-between p-2 bg-dark-800/50 rounded-lg text-sm">
+                                    <span className="text-dark-200">{item.name} × {item.quantity}</span>
+                                    <span className="text-dark-400">{(item.unitPrice * item.quantity).toLocaleString()} ج.م</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="border-t border-dark-800 pt-4 space-y-2">
+                        <div className="flex justify-between text-sm">
+                            <span className="text-dark-400">المجموع</span>
+                            <span className="text-dark-200">{(sale.subtotal || 0).toLocaleString()} ج.م</span>
+                        </div>
+                        {sale.discount > 0 && (
+                            <div className="flex justify-between text-sm">
+                                <span className="text-dark-400">الخصم</span>
+                                <span className="text-red-400">- {sale.discount.toLocaleString()} ج.م</span>
+                            </div>
+                        )}
+                        <div className="flex justify-between font-bold text-lg pt-2 border-t border-dark-800">
+                            <span className="text-dark-200">الإجمالي</span>
+                            <span className="text-primary-400">{sale.total.toLocaleString()} ج.م</span>
+                        </div>
+                        {sale.remaining > 0 && (
+                            <div className="flex justify-between text-sm">
+                                <span className="text-dark-400">المتبقي</span>
+                                <span className="text-red-400">{sale.remaining.toLocaleString()} ج.م</span>
+                            </div>
+                        )}
+                    </div>
+
+                    <button
+                        onClick={() => window.print()}
+                        className="w-full py-2.5 rounded-xl bg-primary-500/15 text-primary-400 hover:bg-primary-500/25 transition-colors flex items-center justify-center gap-2 text-sm font-semibold"
+                    >
+                        <Printer size={16} /> طباعة الفاتورة
+                    </button>
+                </div>
+            </motion.div>
+        </motion.div>
     );
 }

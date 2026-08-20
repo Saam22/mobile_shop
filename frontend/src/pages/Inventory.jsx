@@ -6,6 +6,7 @@ import {
     Package, CreditCard, HardDrive, Usb
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import api from '../api/axios';
 
 const categories = [
     { id: 'mobile_new', name: 'موبايلات جديدة', icon: Smartphone, color: 'from-green-500 to-emerald-600' },
@@ -21,23 +22,31 @@ const categories = [
     { id: 'accessory', name: 'إكسسوارات أخرى', icon: Package, color: 'from-gray-500 to-slate-600' },
 ];
 
-const sampleProducts = [
-    { id: 1, name: 'iPhone 15 Pro Max', code: 'IPH-15PM', category: 'mobile_new', purchasePrice: 52000, sellingPrice: 58000, quantity: 8, alertQuantity: 5, supplier: 'شركة فودي', imei1: '353456789012345', serialNumber: 'F2LXXXXXXXX', color: 'تيتانيوم طبيعي', storage: '256GB', brand: 'Apple', model: 'iPhone 15 Pro Max' },
-    { id: 2, name: 'Samsung Galaxy S24 Ultra', code: 'SAM-S24U', category: 'mobile_new', purchasePrice: 48000, sellingPrice: 54000, quantity: 12, alertQuantity: 5, supplier: 'سامسونج مصر', imei1: '354567890123456', serialNumber: 'R3CXXXXXXXX', color: 'رمادي تيتانيوم', storage: '512GB', brand: 'Samsung', model: 'Galaxy S24 Ultra' },
-    { id: 3, name: 'شاحن iPhone 20W أصلي', code: 'CHR-IP20W', category: 'charger', purchasePrice: 350, sellingPrice: 550, quantity: 45, alertQuantity: 10, supplier: 'توكيل Apple', color: 'أبيض' },
-    { id: 4, name: 'سماعات AirPods Pro 2', code: 'APD-PRO2', category: 'headphone', purchasePrice: 4200, sellingPrice: 5200, quantity: 3, alertQuantity: 5, supplier: 'شركة فودي', imei1: '', serialNumber: '' },
-    { id: 5, name: 'كفر iPhone 15 Pro شفاف', code: 'CAS-IP15P', category: 'case', purchasePrice: 80, sellingPrice: 200, quantity: 120, alertQuantity: 20, supplier: 'الصين', color: 'شفاف' },
-    { id: 6, name: 'Xiaomi Redmi Note 13 (مستعمل)', code: 'XIA-RN13U', category: 'mobile_used', purchasePrice: 5500, sellingPrice: 7000, quantity: 2, alertQuantity: 3, supplier: '', imei1: '356789012345678', serialNumber: '', color: 'أزرق', storage: '128GB', brand: 'Xiaomi', model: 'Redmi Note 13' },
-];
-
 export default function Inventory() {
-    const [products, setProducts] = useState(sampleProducts);
+    const [products, setProducts] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [showAddModal, setShowAddModal] = useState(false);
     const [showMobileDetails, setShowMobileDetails] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [viewMode, setViewMode] = useState('grid'); // grid or table
+
+    useEffect(() => {
+        loadProducts();
+    }, []);
+
+    const loadProducts = async () => {
+        try {
+            setLoading(true);
+            const { data } = await api.get('/products');
+            setProducts(data);
+        } catch (err) {
+            toast.error('فشل تحميل المنتجات');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const filteredProducts = products.filter(p => {
         const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -48,9 +57,35 @@ export default function Inventory() {
         return matchesSearch && matchesCategory;
     });
 
-    const handleDelete = (id) => {
-        setProducts(products.filter(p => p.id !== id));
-        toast.success('تم حذف المنتج بنجاح');
+    const handleDelete = async (id) => {
+        try {
+            await api.delete(`/products/${id}`);
+            setProducts(products.filter(p => p._id !== id));
+            toast.success('تم حذف المنتج بنجاح');
+        } catch (err) {
+            toast.error('فشل حذف المنتج');
+        }
+    };
+
+    const handleAdd = async (product) => {
+        try {
+            const { data } = await api.post('/products', product);
+            setProducts([data, ...products]);
+            setShowAddModal(false);
+            toast.success('تم إضافة المنتج بنجاح');
+        } catch (err) {
+            toast.error(err.response?.data?.error || 'فشل إضافة المنتج');
+        }
+    };
+
+    const handleUpdate = async (id, updates) => {
+        try {
+            const { data } = await api.put(`/products/${id}`, updates);
+            setProducts(products.map(p => p._id === id ? data : p));
+            toast.success('تم تحديث المنتج بنجاح');
+        } catch (err) {
+            toast.error('فشل تحديث المنتج');
+        }
     };
 
     return (
@@ -139,12 +174,16 @@ export default function Inventory() {
             </div>
 
             {/* Products Grid/Table */}
-            {viewMode === 'grid' ? (
+            {loading ? (
+                <div className="text-center py-20 text-dark-400">جاري التحميل...</div>
+            ) : products.length === 0 ? (
+                <div className="text-center py-20 text-dark-400">لا توجد منتجات - اضغط "إضافة صنف جديد"</div>
+            ) : viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     <AnimatePresence>
                         {filteredProducts.map((product, i) => (
                             <motion.div
-                                key={product.id}
+                                key={product._id}
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: i * 0.05 }}
@@ -167,7 +206,7 @@ export default function Inventory() {
                                             <Edit2 size={14} />
                                         </button>
                                         <button
-                                            onClick={() => handleDelete(product.id)}
+                                            onClick={() => handleDelete(product._id)}
                                             className="p-1.5 rounded-lg bg-dark-800 text-dark-400 hover:text-red-400 transition-colors"
                                         >
                                             <Trash2 size={14} />
@@ -225,7 +264,7 @@ export default function Inventory() {
                         </thead>
                         <tbody>
                             {filteredProducts.map(product => (
-                                <tr key={product.id}>
+                                <tr key={product._id}>
                                     <td className="font-mono text-primary-400 text-sm">{product.code}</td>
                                     <td className="font-medium">{product.name}</td>
                                     <td>{categories.find(c => c.id === product.category)?.name}</td>
@@ -242,11 +281,14 @@ export default function Inventory() {
                                     <td className="text-dark-400 text-sm">{product.supplier || '-'}</td>
                                     <td>
                                         <div className="flex gap-1">
-                                            <button className="p-1.5 rounded-lg bg-dark-800 text-dark-400 hover:text-blue-400 transition-colors">
+                                            <button
+                                                onClick={() => { setSelectedProduct(product); setShowMobileDetails(true); }}
+                                                className="p-1.5 rounded-lg bg-dark-800 text-dark-400 hover:text-blue-400 transition-colors"
+                                            >
                                                 <Edit2 size={14} />
                                             </button>
                                             <button
-                                                onClick={() => handleDelete(product.id)}
+                                                onClick={() => handleDelete(product._id)}
                                                 className="p-1.5 rounded-lg bg-dark-800 text-dark-400 hover:text-red-400 transition-colors"
                                             >
                                                 <Trash2 size={14} />
@@ -262,11 +304,7 @@ export default function Inventory() {
 
             {/* Add Product Modal */}
             <AnimatePresence>
-                {showAddModal && <AddProductModal onClose={() => setShowAddModal(false)} onAdd={(product) => {
-                    setProducts([...products, { ...product, id: Date.now() }]);
-                    setShowAddModal(false);
-                    toast.success('تم إضافة المنتج بنجاح');
-                }} />}
+                {showAddModal && <AddProductModal onClose={() => setShowAddModal(false)} onAdd={handleAdd} />}
             </AnimatePresence>
 
             {/* Mobile Details Modal */}

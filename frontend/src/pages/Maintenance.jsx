@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Search, Printer, Edit2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import api from '../api/axios';
 
 const statusSteps = [
     { id: 'new', label: 'تم الاستلام', color: 'bg-blue-500' },
@@ -12,32 +13,39 @@ const statusSteps = [
     { id: 'delivered', label: 'تم التسليم', color: 'bg-gray-500' },
 ];
 
-const sampleTickets = [
-    {
-        id: 1, ticketNumber: 'MTN-000001', customerName: 'أحمد محمد', customerPhone: '01012345678',
-        deviceType: 'موبايل', brand: 'Apple', model: 'iPhone 14', problem: 'شاشة مكسورة',
-        status: 'repairing', technician: 'مهندس علي', cost: 2000, sellingPrice: 3500,
-        receivedDate: '2024-01-15', password: '1234', notes: 'شاشة أصلية'
-    },
-    {
-        id: 2, ticketNumber: 'MTN-000002', customerName: 'سارة علي', customerPhone: '01198765432',
-        deviceType: 'موبايل', brand: 'Samsung', model: 'Galaxy A54', problem: 'لا يشحن',
-        status: 'checking', technician: 'مهندس خالد', cost: 500, sellingPrice: 800,
-        receivedDate: '2024-01-16', password: '', notes: ''
-    },
-    {
-        id: 3, ticketNumber: 'MTN-000003', customerName: 'محمود حسن', customerPhone: '01234567890',
-        deviceType: 'تابلت', brand: 'Samsung', model: 'Tab S8', problem: 'بطيء جداً - يحتاج سوفت وير',
-        status: 'waiting_parts', technician: 'مهندس أحمد', cost: 300, sellingPrice: 500,
-        receivedDate: '2024-01-14', password: '', notes: 'يحتاج تحديث'
-    },
-];
-
 export default function Maintenance() {
-    const [tickets, setTickets] = useState(sampleTickets);
+    const [tickets, setTickets] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
     const [filterStatus, setFilterStatus] = useState('all');
+
+    useEffect(() => {
+        loadTickets();
+    }, []);
+
+    const loadTickets = async () => {
+        try {
+            setLoading(true);
+            const { data } = await api.get('/maintenance');
+            setTickets(data);
+        } catch (err) {
+            toast.error('فشل تحميل تذاكر الصيانة');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAdd = async (ticket) => {
+        try {
+            const { data } = await api.post('/maintenance', ticket);
+            setTickets([data, ...tickets]);
+            setShowAddModal(false);
+            toast.success('تم تسجيل جهاز الصيانة بنجاح');
+        } catch (err) {
+            toast.error(err.response?.data?.error || 'فشل تسجيل الجهاز');
+        }
+    };
 
     const filteredTickets = tickets.filter(t => {
         const matchesSearch = t.customerName.includes(searchQuery) ||
@@ -47,9 +55,14 @@ export default function Maintenance() {
         return matchesSearch && matchesStatus;
     });
 
-    const updateStatus = (id, newStatus) => {
-        setTickets(tickets.map(t => t.id === id ? { ...t, status: newStatus } : t));
-        toast.success('تم تحديث الحالة');
+    const updateStatus = async (id, newStatus) => {
+        try {
+            const { data } = await api.patch(`/maintenance/${id}/status`, { status: newStatus });
+            setTickets(tickets.map(t => t._id === id ? data : t));
+            toast.success('تم تحديث الحالة');
+        } catch (err) {
+            toast.error('فشل تحديث الحالة');
+        }
     };
 
     return (
@@ -110,10 +123,15 @@ export default function Maintenance() {
             </div>
 
             {/* Tickets */}
+            {loading ? (
+                <div className="text-center py-20 text-dark-400">جاري التحميل...</div>
+            ) : tickets.length === 0 ? (
+                <div className="text-center py-20 text-dark-400">لا توجد تذاكر صيانة - اضغط "تسجيل جهاز جديد"</div>
+            ) : (
             <div className="space-y-4">
                 {filteredTickets.map((ticket, i) => (
                     <motion.div
-                        key={ticket.id}
+                        key={ticket._id}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.1 }}
@@ -144,7 +162,7 @@ export default function Maintenance() {
                                 {/* Status Progress */}
                                 <select
                                     value={ticket.status}
-                                    onChange={e => updateStatus(ticket.id, e.target.value)}
+                                    onChange={e => updateStatus(ticket._id, e.target.value)}
                                     className="input-dark px-3 py-2 rounded-lg text-sm"
                                 >
                                     {statusSteps.map(step => (
@@ -178,16 +196,17 @@ export default function Maintenance() {
                     </motion.div>
                 ))}
             </div>
+            )}
 
             {/* Add Maintenance Modal */}
             <AnimatePresence>
-                {showAddModal && <AddMaintenanceModal onClose={() => setShowAddModal(false)} />}
+                {showAddModal && <AddMaintenanceModal onClose={() => setShowAddModal(false)} onAdd={handleAdd} />}
             </AnimatePresence>
         </div>
     );
 }
 
-function AddMaintenanceModal({ onClose }) {
+function AddMaintenanceModal({ onClose, onAdd }) {
     const [form, setForm] = useState({
         customerName: '', customerPhone: '', deviceType: 'موبايل',
         brand: '', model: '', problem: '', password: '', notes: '',
@@ -196,8 +215,20 @@ function AddMaintenanceModal({ onClose }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        toast.success('تم تسجيل جهاز الصيانة بنجاح');
-        onClose();
+        onAdd({
+            customerName: form.customerName,
+            customerPhone: form.customerPhone,
+            deviceType: form.deviceType,
+            brand: form.brand,
+            model: form.model,
+            problem: form.problem,
+            password: form.password,
+            customerNotes: form.notes,
+            notes: form.notes,
+            technician: form.technician,
+            cost: Number(form.cost) || 0,
+            sellingPrice: Number(form.sellingPrice) || 0,
+        });
     };
 
     return (

@@ -1,29 +1,75 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Clock, Calendar } from 'lucide-react';
 import toast from 'react-hot-toast';
+import api from '../api/axios';
 
-const sampleEmployees = [
-    { id: 1, name: 'مهندس علي', phone: '01011111111', salary: 5000, role: 'فني صيانة', status: 'present', checkIn: '09:00', checkOut: null },
-    { id: 2, name: 'أحمد محمود', phone: '01122222222', salary: 4000, role: 'مبيعات', status: 'present', checkIn: '08:45', checkOut: null },
-    { id: 3, name: 'سارة أحمد', phone: '01233333333', salary: 3500, role: 'كاشير', status: 'absent', checkIn: null, checkOut: null },
-];
+const roleLabels = {
+    admin: 'مدير عام',
+    sales: 'مبيعات',
+    technician: 'فني صيانة',
+    cashier: 'كاشير',
+    manager: 'مدير فرع',
+};
 
 export default function Employees() {
-    const [employees, setEmployees] = useState(sampleEmployees);
+    const [employees, setEmployees] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
 
-    const checkIn = (id) => {
-        const now = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
-        setEmployees(employees.map(e => e.id === id ? { ...e, status: 'present', checkIn: now } : e));
-        toast.success('تم تسجيل الحضور');
+    useEffect(() => {
+        loadEmployees();
+    }, []);
+
+    const loadEmployees = async () => {
+        try {
+            setLoading(true);
+            const { data } = await api.get('/employees');
+            setEmployees(data);
+        } catch (err) {
+            toast.error('فشل تحميل الموظفين');
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const checkOut = (id) => {
-        const now = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
-        setEmployees(employees.map(e => e.id === id ? { ...e, checkOut: now } : e));
-        toast.success('تم تسجيل الانصراف');
+    const handleAdd = async (employee) => {
+        try {
+            const { data } = await api.post('/employees', employee);
+            setEmployees([...employees, data]);
+            setShowAddModal(false);
+            toast.success('تم إضافة الموظف بنجاح');
+        } catch (err) {
+            toast.error(err.response?.data?.error || 'فشل إضافة الموظف');
+        }
     };
+
+    const checkIn = async (id) => {
+        try {
+            const { data } = await api.patch(`/employees/${id}/check-in`);
+            setEmployees(employees.map(e => e._id === id ? data : e));
+            toast.success('تم تسجيل الحضور');
+        } catch (err) {
+            toast.error('فشل تسجيل الحضور');
+        }
+    };
+
+    const checkOut = async (id) => {
+        try {
+            const { data } = await api.patch(`/employees/${id}/check-out`);
+            setEmployees(employees.map(e => e._id === id ? data : e));
+            toast.success('تم تسجيل الانصراف');
+        } catch (err) {
+            toast.error('فشل تسجيل الانصراف');
+        }
+    };
+
+    const isCheckedIn = (emp) => {
+        const today = new Date().toDateString();
+        return emp.attendance?.checkIn && new Date(emp.attendance.date).toDateString() === today;
+    };
+
+    const isCheckedOut = (emp) => isCheckedIn(emp) && emp.attendance?.checkOut;
 
     return (
         <div className="space-y-6 page-enter">
@@ -43,10 +89,15 @@ export default function Employees() {
                 </motion.button>
             </div>
 
+            {loading ? (
+                <div className="text-center py-20 text-dark-400">جاري التحميل...</div>
+            ) : employees.length === 0 ? (
+                <div className="text-center py-20 text-dark-400">لا يوجد موظفين - اضغط "إضافة موظف"</div>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {employees.map((emp, i) => (
                     <motion.div
-                        key={emp.id}
+                        key={emp._id}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.1 }}
@@ -58,40 +109,40 @@ export default function Employees() {
                             </div>
                             <div>
                                 <h3 className="font-semibold text-dark-100">{emp.name}</h3>
-                                <p className="text-dark-400 text-sm">{emp.role}</p>
+                                <p className="text-dark-400 text-sm">{roleLabels[emp.role] || emp.role}</p>
                             </div>
-                            <span className={`mr-auto px-2 py-1 rounded-lg text-xs ${emp.status === 'present' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
+                            <span className={`mr-auto px-2 py-1 rounded-lg text-xs ${emp.status === 'active' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
                                 }`}>
-                                {emp.status === 'present' ? 'حاضر' : 'غائب'}
+                                {emp.status === 'active' ? 'نشط' : 'غير نشط'}
                             </span>
                         </div>
 
                         <div className="space-y-2 mb-4">
                             <p className="text-sm text-dark-300">📞 {emp.phone}</p>
-                            <p className="text-sm text-dark-300">💰 الراتب: {emp.salary.toLocaleString()} ج.م</p>
-                            {emp.checkIn && (
+                            <p className="text-sm text-dark-300">💰 الراتب: {(emp.salary || 0).toLocaleString()} ج.م</p>
+                            {isCheckedIn(emp) && (
                                 <p className="text-sm text-green-400 flex items-center gap-1">
-                                    <Clock size={12} /> دخول: {emp.checkIn}
+                                    <Clock size={12} /> دخول: {new Date(emp.attendance.checkIn).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
                                 </p>
                             )}
-                            {emp.checkOut && (
+                            {isCheckedOut(emp) && (
                                 <p className="text-sm text-orange-400 flex items-center gap-1">
-                                    <Clock size={12} /> خروج: {emp.checkOut}
+                                    <Clock size={12} /> خروج: {new Date(emp.attendance.checkOut).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
                                 </p>
                             )}
                         </div>
 
                         <div className="flex gap-2">
-                            {!emp.checkIn ? (
+                            {!isCheckedIn(emp) ? (
                                 <button
-                                    onClick={() => checkIn(emp.id)}
+                                    onClick={() => checkIn(emp._id)}
                                     className="flex-1 py-2 rounded-lg bg-green-500/15 text-green-400 text-sm hover:bg-green-500/25 transition-colors flex items-center justify-center gap-1"
                                 >
                                     <Clock size={14} /> تسجيل دخول
                                 </button>
-                            ) : !emp.checkOut ? (
+                            ) : !isCheckedOut(emp) ? (
                                 <button
-                                    onClick={() => checkOut(emp.id)}
+                                    onClick={() => checkOut(emp._id)}
                                     className="flex-1 py-2 rounded-lg bg-orange-500/15 text-orange-400 text-sm hover:bg-orange-500/25 transition-colors flex items-center justify-center gap-1"
                                 >
                                     <Calendar size={14} /> تسجيل خروج
@@ -105,19 +156,21 @@ export default function Employees() {
                     </motion.div>
                 ))}
             </div>
+            )}
 
             <AnimatePresence>
-                {showAddModal && <AddEmployeeModal onClose={() => setShowAddModal(false)} />}
+                {showAddModal && <AddEmployeeModal onClose={() => setShowAddModal(false)} onAdd={handleAdd} />}
             </AnimatePresence>
         </div>
     );
 }
 
-function AddEmployeeModal({ onClose }) {
+function AddEmployeeModal({ onClose, onAdd }) {
+    const [form, setForm] = useState({ name: '', phone: '', salary: '', role: 'sales' });
+
     const handleSubmit = (e) => {
         e.preventDefault();
-        toast.success('تم إضافة الموظف بنجاح');
-        onClose();
+        onAdd({ ...form, salary: Number(form.salary) || 0 });
     };
 
     return (
@@ -140,14 +193,18 @@ function AddEmployeeModal({ onClose }) {
                     <button onClick={onClose} className="text-dark-400 hover:text-white">✕</button>
                 </div>
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    <input required placeholder="اسم الموظف" className="input-dark w-full px-3 py-2 rounded-lg" />
-                    <input required placeholder="رقم الهاتف" className="input-dark w-full px-3 py-2 rounded-lg" />
-                    <input required type="number" placeholder="الراتب" className="input-dark w-full px-3 py-2 rounded-lg" />
-                    <select className="input-dark w-full px-3 py-2 rounded-lg">
-                        <option>مبيعات</option>
-                        <option>فني صيانة</option>
-                        <option>كاشير</option>
-                        <option>مدير فرع</option>
+                    <input required placeholder="اسم الموظف" className="input-dark w-full px-3 py-2 rounded-lg"
+                        value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+                    <input required placeholder="رقم الهاتف" className="input-dark w-full px-3 py-2 rounded-lg"
+                        value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
+                    <input required type="number" placeholder="الراتب" className="input-dark w-full px-3 py-2 rounded-lg"
+                        value={form.salary} onChange={e => setForm({ ...form, salary: e.target.value })} />
+                    <select className="input-dark w-full px-3 py-2 rounded-lg"
+                        value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
+                        <option value="sales">مبيعات</option>
+                        <option value="technician">فني صيانة</option>
+                        <option value="cashier">كاشير</option>
+                        <option value="manager">مدير فرع</option>
                     </select>
                     <div className="flex gap-3 pt-2">
                         <button type="submit" className="btn-success flex-1 py-2.5 rounded-xl font-semibold">حفظ</button>
